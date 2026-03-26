@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Eco Waste Classifier ♻️</title>
+
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<style>
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: 'Poppins', sans-serif;
+}
+
+body {
+    background: linear-gradient(135deg, #d7f5e8, #f4fff9);
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.container {
+    width: 95%;
+    max-width: 900px;
+    background: white;
+    padding: 35px;
+    border-radius: 18px;
+    box-shadow: 0 15px 35px rgba(0,0,0,0.1);
+}
+
+.header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+.header h1 {
+    font-weight: 700;
+    color: #1b5e20;
+    margin-bottom: 8px;
+}
+
+.header p {
+    color: #555;
+    font-size: 14px;
+}
+
+.upload-section {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 25px;
+}
+
+input[type="file"] {
+    flex: 1;
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #ccc;
+}
+
+button {
+    padding: 12px 20px;
+    border: none;
+    border-radius: 8px;
+    background: #2e7d32;
+    color: white;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.3s;
+}
+
+button:hover {
+    background: #1b5e20;
+}
+
+.section {
+    background: #f7fff9;
+    padding: 18px;
+    border-radius: 12px;
+    margin-top: 15px;
+    border-left: 5px solid #2e7d32;
+}
+
+.section h3 {
+    margin-bottom: 8px;
+    font-size: 16px;
+    color: #2e7d32;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+}
+
+.stat-box {
+    background: #e8f5e9;
+    padding: 12px;
+    border-radius: 10px;
+    font-size: 14px;
+}
+
+.fact-box {
+    background: #c5e1a5;
+    padding: 12px;
+    border-radius: 10px;
+    font-weight: 600;
+    margin-top: 12px;
+}
+
+.dashboard {
+    background: #e3f2fd;
+    padding: 15px;
+    border-radius: 12px;
+    margin-top: 15px;
+}
+
+#map {
+    height: 300px;
+    margin-top: 15px;
+    border-radius: 12px;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <div class="header">
+        <h1>♻️ Eco Waste Classifier</h1>
+        <p>AI-Powered Waste Identification with Geo Mapping & Explainable Insights</p>
+    </div>
+
+    <div class="upload-section">
+        <input type="file" id="imageInput" accept="image/*">
+        <button onclick="uploadImage()">Analyze</button>
+    </div>
+
+    <div id="result"></div>
+    <div id="map"></div>
+
+</div>
+
+<script>
+let mapInstance = null;
+
+/* ---------- DYNAMIC FACT BANK ---------- */
+const FACTS = {
+    Plastic: [
+        "Plastic can take up to 500 years to decompose.",
+        "Only about 9% of plastic waste is recycled globally.",
+        "Microplastics have been detected in human blood."
+    ],
+    Paper: [
+        "Recycling one ton of paper can save about 17 trees.",
+        "Paper recycling saves up to 60% energy.",
+        "Recycled paper reduces water pollution by nearly 35%."
+    ],
+    Glass: [
+        "Glass can be recycled endlessly without quality loss.",
+        "Recycling glass saves nearly 30% energy.",
+        "Glass can take over a million years to decompose."
+    ],
+    Organic: [
+        "Organic waste can be composted to enrich soil.",
+        "Food waste releases methane if unmanaged.",
+        "Composting reduces landfill emissions."
+    ]
+};
+
+function getRandomFact(type) {
+    const list = FACTS[type] || [];
+    return list[Math.floor(Math.random() * list.length)] || "";
+}
+
+function uploadImage() {
+    const input = document.getElementById("imageInput");
+    const result = document.getElementById("result");
+    const mapDiv = document.getElementById("map");
+
+    if (input.files.length === 0) {
+        alert("Please select an image");
+        return;
+    }
+
+    result.innerHTML = "<div class='section'>Analyzing image...</div>";
+    mapDiv.innerHTML = "";
+
+    if (mapInstance) {
+        mapInstance.remove();
+        mapInstance = null;
+    }
+
+    const formData = new FormData();
+    formData.append("image", input.files[0]);
+
+    fetch("http://127.0.0.1:5000/predict", {
+        method: "POST",
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+
+    if (data.error) {
+        result.innerHTML = `
+            <div class="section">
+                <h3>Error</h3>
+                <p>${data.error}</p>
+            </div>
+        `;
+        return;
+    }
+
+    if (!data.waste_type) {
+        result.innerHTML = `
+            <div class="section">
+                <h3>Error</h3>
+                <p>Invalid response from backend.</p>
+            </div>
+        `;
+        return;
+    }
+
+    let explanation = data.eco_explanation || "";
+    if (explanation.includes("Fact:")) {
+        explanation = explanation.split("Fact:")[0];
+    }
+
+    const dynamicFact = getRandomFact(data.waste_type);
+
+    result.innerHTML = `
+        <div class="section">
+            <h3>Prediction Result</h3>
+            <div class="stats-grid">
+                <div class="stat-box"><b>Waste Type:</b> ${data.waste_type}</div>
+                <div class="stat-box"><b>Confidence:</b> ${data.confidence}%</div>
+                <div class="stat-box"><b>Harm Level:</b> ${data.harm_level}</div>
+                <div class="stat-box"><b>Recyclable:</b> ${data.recyclable}</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Environmental Impact</h3>
+            <div class="stats-grid">
+                <div class="stat-box">🌍 CO₂ Saved: ${data.co2_saved} kg</div>
+                <div class="stat-box">🎁 Reward Points: ${data.reward_points}</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Eco Explanation</h3>
+            <p>${explanation}</p>
+        </div>
+
+        <div class="fact-box">
+            💡 ${dynamicFact}
+        </div>
+    `;
+
+        if (data.nearest_center) {
+            result.innerHTML += `
+                <div class="section">
+                    <h3>Nearest Recycling Center</h3>
+                    <p><b>${data.nearest_center.name}</b></p>
+                    <p>${data.nearest_center.city}</p>
+                    <p>Distance: ${data.nearest_center.distance_km} km</p>
+                </div>
+            `;
+
+            mapInstance = L.map('map').setView(
+                [data.nearest_center.lat, data.nearest_center.lon],
+                13
+            );
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap'
+            }).addTo(mapInstance);
+
+            L.marker([data.nearest_center.lat, data.nearest_center.lon])
+                .addTo(mapInstance)
+                .bindPopup("Nearest Recycling Center")
+                .openPopup();
+        }
+
+        if (data.daily_dashboard) {
+            result.innerHTML += `
+                <div class="dashboard">
+                    <h3>Daily Eco Dashboard</h3>
+                    <p>Total Items: ${data.daily_dashboard.total_items}</p>
+                    <p>Total CO₂ Saved: ${data.daily_dashboard.total_co2} kg</p>
+                    <p>Total Reward Points: ${data.daily_dashboard.total_points}</p>
+                </div>
+            `;
+        }
+    })
+    .catch(() => {
+        result.innerHTML = "<div class='section'>Error predicting image</div>";
+    });
+}
+</script>
+
+</body>
+</html>
